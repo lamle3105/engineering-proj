@@ -1,0 +1,24 @@
+# Core dependencies
+pyspark==3.4.0
+apache-airflow==2.7.0
+boto3==1.28.0
+pandas==2.0.3
+
+# AWS and S3
+s3fs==2023.6.0
+awswrangler==3.3.0
+
+# Database connectivity
+sqlalchemy==2.0.19
+psycopg2-binary==2.9.7
+pymysql==1.1.0
+
+# Data quality and validation
+great-expectations==0.17.0
+
+# Configuration
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Utilities
+requests==2.31.0

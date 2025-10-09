@@ -1,0 +1,91 @@
+# Data pipeline configuration
+pipeline:
+  name: data_engineering_pipeline
+  version: 1.0.0
+  description: Data pipeline for ingesting, transforming, and curating data
+
+# Data sources configuration
+data_sources:
+  - name: sales_db
+    type: postgresql
+    connection:
+      host: ${DB_HOST}
+      port: ${DB_PORT}
+      database: sales
+      user: ${DB_USER}
+      password: ${DB_PASSWORD}
+    tables:
+      - sales_transactions
+      - customers
+      - products
+
+  - name: inventory_api
+    type: api
+    endpoint: https://api.example.com/inventory
+    auth_type: bearer
+    polling_interval: 3600
+
+  - name: csv_files
+    type: file
+    location: s3://${S3_BUCKET_NAME}/raw/csv/
+    format: csv
+    delimiter: ","
+
+# S3 data lake configuration
+data_lake:
+  bucket: ${S3_BUCKET_NAME}
+  region: ${AWS_REGION}
+  layers:
+    raw:
+      prefix: raw/
+      retention_days: 90
+    processed:
+      prefix: processed/
+      retention_days: 180
+    curated:
+      prefix: curated/
+      retention_days: 365
+
+# Spark configuration
+spark:
+  app_name: ${SPARK_APP_NAME}
+  master: ${SPARK_MASTER}
+  configs:
+    spark.executor.memory: 4g
+    spark.driver.memory: 2g
+    spark.sql.adaptive.enabled: true
+    spark.hadoop.fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
+
+# Star schema configuration
+star_schema:
+  fact_tables:
+    - fact_sales
+  dimension_tables:
+    - dim_customer
+    - dim_product
+    - dim_date
+    - dim_location
+
+# Data masking configuration
+data_masking:
+  enabled: ${MASKING_ENABLED}
+  fields:
+    email:
+      method: hash
+      algorithm: sha256
+    phone:
+      method: mask
+      pattern: "XXX-XXX-####"
+    ssn:
+      method: mask
+      pattern: "XXX-XX-####"
+    credit_card:
+      method: tokenize
+
+# Airflow scheduling
+airflow:
+  dag_id: data_pipeline_dag
+  schedule_interval: "0 2 * * *"  # Daily at 2 AM
+  start_date: 2024-01-01
+  catchup: false
+  max_active_runs: 1

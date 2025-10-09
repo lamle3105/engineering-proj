@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Environment variables
+.env
+.env.local
+
+# Airflow
+airflow/logs/
+airflow/*.db
+airflow/*.pid
+airflow/*.cfg
+airflow/*.log
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Data files (except samples)
+data/raw/*.csv
+data/raw/*.json
+data/raw/*.parquet
+data/processed/
+data/curated/
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# AWS
+.aws/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
