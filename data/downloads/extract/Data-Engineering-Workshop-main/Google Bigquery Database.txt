@@ -1,0 +1,2 @@
+https://console.cloud.google.com/bigquery?ws=!1m5!1m4!4m3!1sbanking-dataset!2scredit_card_transactions!3scredit_card_transaction_v2
+Lưu ý: Sử dụng account Gmail được liên hệ để truy cập vào nguồn dữ liệu này.

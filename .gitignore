@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+.venv/
+*.pyc
+
+# Data & artifacts
+data/_downloads/
+exports/
+minio-data/
+sftp-upload/
+
+# OS & IDE
+.DS_Store
+.vscode/

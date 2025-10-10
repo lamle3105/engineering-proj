@@ -1,0 +1,7 @@
+boto3
+botocore
+paramiko
+pandas
+pyarrow
+python-dotenv
+pyspark
