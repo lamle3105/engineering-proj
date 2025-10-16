@@ -5,3 +5,6 @@ pandas
 pyarrow
 python-dotenv
 pyspark
+google-cloud-bigquery
+pandas-gbq
+google-auth
