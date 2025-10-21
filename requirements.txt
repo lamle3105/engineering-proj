@@ -9,5 +9,3 @@ pycryptodome
 google-cloud-bigquery
 pandas-gbq
 google-auth
-hadoop-aws
-aws-java-sdk-bundle
