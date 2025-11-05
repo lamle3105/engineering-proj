@@ -3,126 +3,145 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, ROOT)
 
 from datetime import date
+from pyspark.sql import functions as F, types as T
 from src.common.spark_utils import get_spark
-from pyspark.sql import functions as F, Window
 
 TODAY = date.today().isoformat()
-BUCKET = "raw-bucket" 
+BUCKET = "raw-bucket"
+
 RAW_PATH    = f"s3a://{BUCKET}/raw/bq/transactions/ingest_date=2025-10-15/transactions.parquet"
 SILVER_PATH = f"s3a://{BUCKET}/standardized/transactions/etl_date={TODAY}"
 QUAR_PATH   = f"s3a://{BUCKET}/standardized/quarantine/transactions/etl_date={TODAY}"
 DQ_DIR      = f"s3a://{BUCKET}/standardized/_dq/transactions/etl_date={TODAY}"
 
-AMOUNT_MIN, AMOUNT_MAX = 0.01, 1_000_000.0
-
-spark = get_spark("Standardize Transactions")
+spark = get_spark("Standardize_Transactions")
+spark.sparkContext.setLogLevel("WARN")
 
 df = spark.read.parquet(RAW_PATH)
 
+cols_ci = {c.lower(): c for c in df.columns}
+def has(name): return name.lower() in cols_ci
+def col(name): return F.col(cols_ci[name.lower()])
+
+for c, t in df.dtypes:
+    if t == "string":
+        df = df.withColumn(c, F.trim(F.col(c)))
+
 rename_map = {
-    "Transaction_ID": "txn_id",
-    "UserID": "user_id",
-    "CardID": "card_id",
+    "User": "user_id",
+    "Card": "card_id",
+    "Year": "txn_year",
+    "Month": "txn_month",
+    "Day": "txn_day",
+    "Time": "txn_time",
     "Amount": "amount",
-    "CreatedAt": "txn_datetime",
+    "Use_Chip": "use_chip",
     "Merchant_Name": "merchant_name",
     "Merchant_City": "merchant_city",
     "Merchant_State": "merchant_state",
-    "Zip": "zip_code",
+    "Zip": "zipcode",
     "MCC": "mcc",
-    "Is_Fraud_": "is_fraud"
+    "Errors_": "errors",
+    "Is_Fraud_": "is_fraud",
 }
-
 for old, new in rename_map.items():
-    if old in df.columns:
-        df = df.withColumnRenamed(old, new)
+    if has(old):
+        df = df.withColumnRenamed(cols_ci[old.lower()], new)
 
-# ---- Optional columns ----
-optional_cols = ["merchant_name","merchant_city","merchant_state","zip_code","mcc","is_fraud"]
-for c in optional_cols:
-    if c not in df.columns:
-        df = df.withColumn(c, F.lit(None).cast("string"))
+df = (df
+    .withColumn("user_id",   F.col("user_id").cast("long"))
+    .withColumn("card_id",   F.col("card_id").cast("long"))
+    .withColumn("txn_year",  F.col("txn_year").cast("int"))
+    .withColumn("txn_month", F.col("txn_month").cast("int"))
+    .withColumn("txn_day",   F.col("txn_day").cast("int"))
+    .withColumn("amount",
+        F.regexp_replace(F.col("amount").cast("string"), r"[^0-9\.\-]", "").cast(T.DecimalType(18, 2)))
+    .withColumn("zipcode",   F.regexp_replace(F.col("zipcode").cast("string"), r"[^\d]", ""))
+    .withColumn("merchant_name",  F.col("merchant_name").cast("string"))
+    .withColumn("merchant_city",  F.col("merchant_city").cast("string"))
+    .withColumn("merchant_state", F.col("merchant_state").cast("string"))
+    .withColumn("mcc",            F.col("mcc").cast("string"))
+    .withColumn("errors",         F.col("errors").cast("string"))
+)
 
-df = df.withColumn("amount_clean", F.regexp_replace(F.col("amount").cast("string"), r"[^0-9\.\-]", ""))
-df = df.withColumn("amount", F.col("amount_clean").cast("float")).drop("amount_clean")
+chip_s = F.lower(F.col("use_chip").cast("string"))
+df = df.withColumn(
+    "use_chip",
+    F.when(chip_s.rlike(r"\b(swipe|swiped|magstripe|mag|msr)\b"), F.lit("SWIPE"))
+     .when(chip_s.rlike(r"\b(chip|emv|insert)\b"),                F.lit("CHIP"))
+     .when(chip_s.rlike(r"\b(online|ecom|not[_\s]?chip|no chip|keyed|card not present)\b"), F.lit("ONLINE"))
+     .otherwise(F.lit("UNKNOWN"))
+)
 
-ts_candidates = [c for c in ["txn_datetime","created_at","timestamp","event_time"] if c in df.columns]
-if ts_candidates:
-    df = df.withColumn("txn_datetime", F.to_timestamp(F.col(ts_candidates[0])))
-df = df.withColumn("date", F.to_date("txn_datetime"))
+day2   = F.lpad(F.col("txn_day").cast("string"), 2, "0")
+month2 = F.lpad(F.col("txn_month").cast("string"), 2, "0")
+year4  = F.col("txn_year").cast("string")
+date_str = F.concat_ws("-", day2, month2, year4)
 
-if "is_fraud" in df.columns:
-    df = df.withColumn(
-        "is_fraud",
-        F.when(F.lower(F.col("is_fraud").cast("string")).isin("1","true","t","y","yes"), F.lit(True))
-         .when(F.lower(F.col("is_fraud").cast("string")).isin("0","false","f","n","no"), F.lit(False))
-         .otherwise(F.col("is_fraud").cast("boolean"))
-    )
+time_s = F.col("txn_time").cast("string")
+hh = F.lpad(F.regexp_extract(time_s, r'^\s*(\d{1,2})', 1), 2, "0")
+mm = F.lpad(F.regexp_extract(time_s, r'^\s*\d{1,2}:(\d{2})', 1), 2, "0")
+time_str = F.concat_ws(":", hh, mm)
 
-w = Window.partitionBy("txn_id").orderBy(F.col("txn_datetime").desc_nulls_last())
-df = df.withColumn("rn", F.row_number().over(w)).filter(F.col("rn") == 1).drop("rn")
+df = df.withColumn(
+    "transaction_datetime",
+    F.to_timestamp(F.concat_ws(" ", date_str, time_str), "dd-MM-yyyy HH:mm")
+)
+
+df = df.withColumn("weekday", F.date_format(F.col("transaction_datetime"), "E"))
+df = df.withColumn("hour", F.hour(F.col("transaction_datetime")))
+
+# errors: null/blank => "NONE"
+err_s = F.trim(F.col("errors"))
+df = df.withColumn("errors", F.when(F.coalesce(err_s, F.lit("")) == "", F.lit("NONE")).otherwise(err_s))
+
+# is_fraud to boolean
+fraud_s = F.lower(F.col("is_fraud").cast("string"))
+df = df.withColumn(
+    "is_fraud",
+    F.when(fraud_s.isin("1", "true", "y", "yes", "t"), F.lit(True)).otherwise(F.lit(False))
+)
 
 valid = (
-    F.col("txn_id").isNotNull() &
     F.col("user_id").isNotNull() &
     F.col("card_id").isNotNull() &
-    F.col("txn_datetime").isNotNull() &
-    F.col("amount").isNotNull() &
-    (F.col("amount") >= F.lit(AMOUNT_MIN)) &
-    (F.col("amount") <= F.lit(AMOUNT_MAX))
+    F.col("amount").isNotNull() & (F.col("amount") != 0) &
+    F.col("transaction_datetime").isNotNull()
 )
 
+dq_array = F.array(
+    F.when(F.col("user_id").isNull(), F.lit("missing_user_id")),
+    F.when(F.col("card_id").isNull(), F.lit("missing_card_id")),
+    F.when(F.col("amount").isNull() | (F.col("amount") == 0), F.lit("invalid_amount")),
+    F.when(F.col("transaction_datetime").isNull(), F.lit("missing_timestamp"))
+)
+bad_df = df.filter(~valid).withColumn("dq_errors", F.array_remove(dq_array, None))
 good_df = df.filter(valid)
-bad_df  = df.filter(~valid)
 
-bad_df = bad_df.withColumn(
-    "dq_errors",
-    F.array_remove(F.array(
-        F.when(F.col("txn_id").isNull(),       F.lit("missing_txn_id")),
-        F.when(F.col("user_id").isNull(),      F.lit("missing_user_id")),
-        F.when(F.col("card_id").isNull(),      F.lit("missing_card_id")),
-        F.when(F.col("txn_datetime").isNull(), F.lit("missing_txn_datetime")),
-        F.when(F.col("amount").isNull(),       F.lit("missing_amount")),
-        F.when(F.col("amount") < AMOUNT_MIN,   F.lit("amount_too_small")),
-        F.when(F.col("amount") > AMOUNT_MAX,   F.lit("amount_too_large")),
-    ), F.lit(None))
-)
+good_df = good_df.fillna({
+    "merchant_name": "UNKNOWN",
+    "merchant_city": "UNKNOWN",
+    "merchant_state": "UNKNOWN",
+    "mcc": "UNKNOWN",
+    "zipcode": ""
+})
 
-fill_map = {
-    "merchant_name":  "UNKNOWN",
-    "merchant_city":  "UNKNOWN",
-    "merchant_state": "UNK",
-    "zip_code":       "00000",
-    "mcc":            "0000",
-}
-for c, v in fill_map.items():
-    if c in good_df.columns:
-        good_df = good_df.fillna({c: v})
-
-keep_cols = [
-    "txn_id","user_id","card_id",
-    "amount","txn_datetime","date","is_fraud",
-    "merchant_name","merchant_city","merchant_state","zip_code","mcc"
+silver_cols = [
+    "user_id", "card_id", "transaction_datetime",
+    "txn_year", "txn_month", "txn_day", "hour", "weekday",
+    "amount", "use_chip",
+    "merchant_name", "merchant_city", "merchant_state",
+    "zipcode", "mcc", "is_fraud", "errors"
 ]
-good_cols = [c for c in keep_cols if c in good_df.columns]
+silver_cols = [c for c in silver_cols if c in good_df.columns]
 
-good_df.select(*good_cols).write.mode("overwrite").parquet(SILVER_PATH)
+good_df.select(*silver_cols).write.mode("overwrite").parquet(SILVER_PATH)
 bad_df.write.mode("overwrite").parquet(QUAR_PATH)
 
-total_rows = df.count()
-good_rows  = good_df.count()
-bad_rows   = bad_df.count()
+total, good, bad = df.count(), good_df.count(), bad_df.count()
+dq = spark.createDataFrame([(TODAY, total, good, bad)],
+                           "etl_date string, total long, good long, bad long")
+dq.coalesce(1).write.mode("overwrite").format("json").save(DQ_DIR)
 
-dq = spark.createDataFrame(
-    [(TODAY, total_rows, good_rows, bad_rows, AMOUNT_MIN, AMOUNT_MAX)],
-    schema="etl_date string, total_rows long, good_rows long, bad_rows long, amount_min double, amount_max double"
-)
-dq.coalesce(1).write.mode("append").format("json").save(DQ_DIR)
-
-
-print(f"[OK] Standardized → {SILVER_PATH}  rows={good_rows}  (total={total_rows}, bad={bad_rows})")
-print(f"[OK] Quarantine   → {QUAR_PATH}")
-print(f"[OK] DQ summary   → {DQ_DIR}/part-*.json")
-
-print(f"DQ summary → total={total_rows}, good={good_rows}, bad={bad_rows}, pct_bad={(bad_rows/total_rows)*100:.2f}%")
+print(f"[OK] standardized/transactions → rows={good} (total={total}, bad={bad})")
 spark.stop()
