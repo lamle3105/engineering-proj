@@ -10,7 +10,7 @@ TODAY = date.today().isoformat()
 BUCKET = "raw-bucket"
 
 RAW_PATH    = f"s3a://{BUCKET}/raw/bq/transactions/ingest_date=2025-10-15/transactions.parquet"
-SILVER_PATH = f"s3a://{BUCKET}/standardized/transactions/etl_date={TODAY}"
+SILVER_PATH = f"s3a://{BUCKET}/standardized/sor/transactions/etl_date={TODAY}"
 QUAR_PATH   = f"s3a://{BUCKET}/standardized/quarantine/transactions/etl_date={TODAY}"
 DQ_DIR      = f"s3a://{BUCKET}/standardized/_dq/transactions/etl_date={TODAY}"
 
@@ -143,5 +143,5 @@ dq = spark.createDataFrame([(TODAY, total, good, bad)],
                            "etl_date string, total long, good long, bad long")
 dq.coalesce(1).write.mode("overwrite").format("json").save(DQ_DIR)
 
-print(f"[OK] standardized/transactions → rows={good} (total={total}, bad={bad})")
+print(f"[OK] standardized/transactions -> rows={good} (total={total}, bad={bad})")
 spark.stop()

@@ -10,7 +10,7 @@ TODAY = date.today().isoformat()
 BUCKET = "raw-bucket"
 
 RAW_PATH    = f"s3a://{BUCKET}/raw/winscp/cards/ingest_date=2025-10-10/sd254_cards.csv"
-SILVER_PATH = f"s3a://{BUCKET}/standardized/cards/etl_date={TODAY}"
+SILVER_PATH = f"s3a://{BUCKET}/standardized/sor/cards/etl_date={TODAY}"
 QUAR_PATH   = f"s3a://{BUCKET}/standardized/quarantine/cards/etl_date={TODAY}"
 DQ_DIR      = f"s3a://{BUCKET}/standardized/_dq/cards/etl_date={TODAY}"
 

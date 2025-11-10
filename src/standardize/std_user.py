@@ -10,7 +10,7 @@ TODAY = date.today().isoformat()
 BUCKET = "raw-bucket"
 
 RAW_PATH    = f"s3a://{BUCKET}/raw/lake/users/ingest_date=2025-10-10/sd254_users_fixed.json"
-SILVER_PATH = f"s3a://{BUCKET}/standardized/users/etl_date={TODAY}"
+SILVER_PATH = f"s3a://{BUCKET}/standardized/sor/users/etl_date={TODAY}"
 QUAR_PATH   = f"s3a://{BUCKET}/standardized/quarantine/users/etl_date={TODAY}"
 DQ_DIR      = f"s3a://{BUCKET}/standardized/_dq/users/etl_date={TODAY}"
 
